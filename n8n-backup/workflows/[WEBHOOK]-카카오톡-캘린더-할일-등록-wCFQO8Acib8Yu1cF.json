@@ -1,0 +1,109 @@
+{
+  "id": "wCFQO8Acib8Yu1cF",
+  "name": "[WEBHOOK] 카카오톡 캘린더 할일 등록",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-09T11:17:16.272Z",
+  "updatedAt": "2026-11-09T11:27:39.402Z",
+  "isArchived": false,
+  "versionId": "714a7cbc-3592-40dc-a811-3a37c22bed6b",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Webhook",
+      "webhookId": "kakao-todo-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kakao-todo",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "t2",
+      "name": "할일 구성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst content = String(body.content || '').trim().slice(0, 1000);\nif (!content) throw new Error('content(할일 내용)가 필요합니다.');\nconst task = { content };\nif (body.due_date) {\n  const kst = new Date(Date.now() + 9 * 3600 * 1000);\n  const digits = String(body.due_date).replace(/\\D/g, '');\n  let ymd;\n  if (digits.length === 8) ymd = digits;\n  else if (digits.length === 4) ymd = `${kst.getUTCFullYear()}${digits}`; // MMDD\n  else throw new Error('due_date는 YYYY-MM-DD 또는 MMDD 형식이어야 합니다.');\n  task.due_info = { due_date: ymd, time_zone: 'Asia/Seoul' };\n  if (body.alarm_time) task.due_info.alarm_time = String(body.alarm_time).replace(/\\D/g, '').padStart(4, '0');\n}\nreturn [{ json: { task: JSON.stringify(task) } }];"
+      }
+    },
+    {
+      "id": "t3",
+      "name": "할일 등록",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://kapi.kakao.com/v1/api/calendar/create/task",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "task",
+              "value": "={{ $json.task }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "oAuth2Api": {
+          "id": "SQ1WOpcb9u1kFq9q",
+          "name": "Unnamed credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "할일 구성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "할일 구성": {
+      "main": [
+        [
+          {
+            "node": "할일 등록",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
