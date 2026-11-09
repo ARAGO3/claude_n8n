@@ -1,0 +1,429 @@
+{
+  "id": "hJ258t2rk4VnbiNF",
+  "name": "[CRON] 공모주 커피값 벌기 - 상장일 알림(08:00·08:57)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-09T11:45:34.961Z",
+  "updatedAt": "2026-11-09T11:46:15.776Z",
+  "isArchived": false,
+  "versionId": "90cb765d-2ae1-46fd-b86b-9ae8de42fe71",
+  "triggerCount": 3,
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "평일 08:00 상장 준비",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        250,
+        150
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a2",
+      "name": "평일 08:57 거래 시작 직전",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        250,
+        350
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "57 8 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a3",
+      "name": "테스트 웹훅",
+      "webhookId": "ipo-listing-test-webhook",
+      "notes": "수동 테스트용. body: {\"mode\":\"ready|now\",\"today\":\"2026-11-12\",\"dry_run\":true}",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        250,
+        550
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ipo-listing-test",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1",
+      "name": "모드 결정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const first = $input.first().json;\nconst body = first.body || {};\nconst kst = new Date(Date.now() + 9 * 3600 * 1000);\nlet mode = body.mode;\nif (!mode) {\n  const mins = kst.getUTCHours() * 60 + kst.getUTCMinutes();\n  mode = mins < 510 ? 'ready' : 'now';\n}\nlet d = kst;\nif (body.today) {\n  const s = String(body.today).replace(/\\D/g, '');\n  d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8)));\n}\nconst today = d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();\nreturn [{ json: { mode, today, dry: !!body.dry_run } }];\n"
+      }
+    },
+    {
+      "id": "b2",
+      "name": "청약 종목 조회",
+      "notes": "내가 실제 청약한 종목(ipo_subscriptions)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "kG82s0zXdam3b49k"
+        },
+        "returnAll": true
+      }
+    },
+    {
+      "id": "b3",
+      "name": "등록 종목 정리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const ctx = $('모드 결정').first().json;\nconst rows = $input.all().map((i) => i.json).filter((r) => r.name && r.status !== 'ignore' && r.status !== '매도완료');\nreturn [{ json: { ...ctx, rows: rows.map((r) => ({ name: r.name, broker: r.broker || '', shares: r.shares ?? null, price: r.price ?? null })) } }];\n"
+      }
+    },
+    {
+      "id": "b4",
+      "name": "38 목록 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://www.38.co.kr/html/fund/index.htm?o=k",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "b5",
+      "name": "상세 대상 선정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const ctx = $('등록 종목 정리').first().json;\nconst listUrl = 'http://www.38.co.kr/html/fund/index.htm?o=k';\nif (!ctx.rows.length) return [{ json: { empty: true, url: listUrl } }];\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst html = new TextDecoder('euc-kr').decode(buf);\nconst strip = (s) => s.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nconst out = [];\nfor (const tr of html.match(/<tr[^>]*>[\\s\\S]*?<\\/tr>/g) || []) {\n  const link = tr.match(/o=v&amp;no=(\\d+)/);\n  if (!link) continue;\n  const td = (tr.match(/<td[^>]*>[\\s\\S]*?<\\/td>/g) || []).map(strip);\n  const row = ctx.rows.find((r) => r.name === td[0]);\n  if (!row) continue;\n  out.push({ json: { no: link[1], name: td[0], listBroker: td[5], row, url: `http://www.38.co.kr/html/fund/?o=v&no=${link[1]}` } });\n}\nreturn out.length ? out : [{ json: { empty: true, url: listUrl } }];\n"
+      }
+    },
+    {
+      "id": "b6",
+      "name": "상세 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "b7",
+      "name": "상장 판정·메시지",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const ctx = $('등록 종목 정리').first().json;\nconst cands = $('상세 대상 선정').all().map((i) => i.json);\nif (cands.length === 1 && cands[0].empty) return [];\nconst link = 'https://www.38.co.kr/html/fund/index.htm?o=k';\nconst num = (s) => (s == null ? null : parseFloat(String(s).replace(/,/g, '')));\nconst lines = [];\nfor (let i = 0; i < cands.length; i++) {\n  const c = cands[i];\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const t = new TextDecoder('euc-kr').decode(buf)\n    .replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/g, '')\n    .replace(/<[^>]+>/g, '|').replace(/&nbsp;/g, ' ').replace(/[\\s|]+/g, ' ');\n  const lm = t.match(/신규상장일 (\\d{4})\\.(\\d{2})\\.(\\d{2})/) || t.match(/상장일 (\\d{4})\\.(\\d{2})\\.(\\d{2})/);\n  if (!lm) continue;\n  const ln = +lm[1] * 10000 + +lm[2] * 100 + +lm[3];\n  if (ln !== ctx.today) continue;\n  const fm = t.match(/확정공모가 ([\\d,]+) 원/);\n  const price = c.row.price || (fm ? num(fm[1]) : null);\n  const priceTxt = price ? `${price.toLocaleString('en-US')}원` : '공모가 확인불가';\n  const sharesTxt = c.row.shares != null ? `배정 ${c.row.shares}주` : '배정수량 미확인';\n  const broker = c.row.broker || c.listBroker || '증권사 미확인';\n  const day = `${lm[2]}/${lm[3]}`;\n  if (ctx.mode === 'ready') {\n    lines.push([`📅 [상장 준비] 오늘 신규상장 ${c.name}`, `상장일 ${day} · 공모가 ${priceTxt}`, `${sharesTxt} · ${broker}`, '상장 당일 매도 계획을 확인하세요.'].join('\\n'));\n  } else {\n    lines.push([`🚨 오전 9시 거래 시작까지 약 3분! 증권사 앱을 확인하세요.`, `${c.name} · 공모가 ${priceTxt}`, `${sharesTxt} · ${broker}`].join('\\n'));\n  }\n}\nreturn lines.map((text) => ({ json: { template_object: JSON.stringify({ object_type: 'text', text, link: { web_url: link, mobile_web_url: link } }) } }));\n"
+      }
+    },
+    {
+      "id": "b8",
+      "name": "미리보기 여부",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('등록 종목 정리').first().json.dry }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b9",
+      "name": "미리보기(발송 안 함)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2550,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b10",
+      "name": "나에게 보내기",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2550,
+        420
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://kapi.kakao.com/v2/api/talk/memo/default/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "template_object",
+              "value": "={{ $json.template_object }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "oAuth2Api": {
+          "id": "SQ1WOpcb9u1kFq9q",
+          "name": "Unnamed credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "평일 08:00 상장 준비": {
+      "main": [
+        [
+          {
+            "node": "모드 결정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "평일 08:57 거래 시작 직전": {
+      "main": [
+        [
+          {
+            "node": "모드 결정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "테스트 웹훅": {
+      "main": [
+        [
+          {
+            "node": "모드 결정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "모드 결정": {
+      "main": [
+        [
+          {
+            "node": "청약 종목 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "청약 종목 조회": {
+      "main": [
+        [
+          {
+            "node": "등록 종목 정리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "등록 종목 정리": {
+      "main": [
+        [
+          {
+            "node": "38 목록 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "38 목록 조회": {
+      "main": [
+        [
+          {
+            "node": "상세 대상 선정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "상세 대상 선정": {
+      "main": [
+        [
+          {
+            "node": "상세 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "상세 조회": {
+      "main": [
+        [
+          {
+            "node": "상장 판정·메시지",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "상장 판정·메시지": {
+      "main": [
+        [
+          {
+            "node": "미리보기 여부",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "미리보기 여부": {
+      "main": [
+        [
+          {
+            "node": "미리보기(발송 안 함)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "나에게 보내기",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
