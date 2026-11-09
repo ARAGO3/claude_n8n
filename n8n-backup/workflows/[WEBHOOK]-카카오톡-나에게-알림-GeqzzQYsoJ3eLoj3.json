@@ -1,0 +1,135 @@
+{
+  "id": "GeqzzQYsoJ3eLoj3",
+  "name": "[WEBHOOK] 카카오톡 나에게 알림",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-09T10:29:55.162Z",
+  "updatedAt": "2026-11-09T10:48:46.373Z",
+  "isArchived": false,
+  "versionId": "af51216a-02da-4d5a-b9e4-27662fbaf21a",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Webhook",
+      "webhookId": "kakao-notify-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kakao-notify",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "n4",
+      "name": "메시지 구성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $('Webhook').first().json.body || {};\nconst text = String(body.message || '알림이 도착했습니다.').slice(0, 200);\nconst link = body.link || 'https://n8n.io';\nreturn [{ json: { template_object: JSON.stringify({ object_type: 'text', text, link: { web_url: link, mobile_web_url: link } }) } }];"
+      }
+    },
+    {
+      "id": "n5",
+      "name": "나에게 보내기",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://kapi.kakao.com/v2/api/talk/memo/default/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "template_object",
+              "value": "={{ $json.template_object }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "oAuth2Api": {
+          "id": "SQ1WOpcb9u1kFq9q",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "id": "n6",
+      "name": "응답",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1150,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: $json.result_code === 0, result_code: $json.result_code }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "메시지 구성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "메시지 구성": {
+      "main": [
+        [
+          {
+            "node": "나에게 보내기",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "나에게 보내기": {
+      "main": [
+        [
+          {
+            "node": "응답",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
