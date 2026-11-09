@@ -1,0 +1,592 @@
+{
+  "id": "AWsERCE8JDZ51jQB",
+  "name": "[CRON] 매일 18시 n8n 워크플로우 GitHub 백업",
+  "active": true,
+  "activeVersionId": "f9b9164d-b496-45e7-8338-592ebb39e193",
+  "createdAt": "2026-11-09T12:09:59.538Z",
+  "updatedAt": "2026-11-09T12:26:50.310Z",
+  "isArchived": false,
+  "versionId": "f9b9164d-b496-45e7-8338-592ebb39e193",
+  "triggerCount": 2,
+  "nodes": [
+    {
+      "id": "g1",
+      "name": "매일 18:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        304
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "g2",
+      "name": "전체 워크플로우 조회",
+      "notes": "n8n API credential(n8nApi) 연결 필요: Base URL http://localhost:5678/api/v1 + API Key",
+      "type": "n8n-nodes-base.n8n",
+      "typeVersion": 1,
+      "position": [
+        560,
+        304
+      ],
+      "parameters": {
+        "resource": "workflow",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {},
+        "requestOptions": {}
+      },
+      "credentials": {
+        "n8nApi": {
+          "id": "BOCZxcf1OAc7RhBW",
+          "name": "n8n account"
+        }
+      }
+    },
+    {
+      "id": "g3",
+      "name": "백업 파일 구성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        304
+      ],
+      "parameters": {
+        "jsCode": "const DIR = 'n8n-backup/workflows';\nconst slug = (s) => String(s || 'workflow').replace(/[\\\\/:*?\"<>|#%]/g, '').trim().replace(/\\s+/g, '-').slice(0, 80) || 'workflow';\nreturn $input.all().map((i) => {\n  const wf = { ...i.json };\n  // 개인정보·실행데이터 제외 (공개 저장소 보호, 매일 불필요한 diff 방지)\n  delete wf.shared; delete wf.staticData; delete wf.pinData;\n  const path = `${DIR}/${slug(wf.name)}-${wf.id}.json`;\n  const content = Buffer.from(JSON.stringify(wf, null, 2) + '\\n', 'utf8').toString('base64');\n  return { json: { id: wf.id, name: wf.name, path, urlPath: encodeURI(path), content } };\n});\n"
+      }
+    },
+    {
+      "id": "g4",
+      "name": "GitHub 기존 파일 조회",
+      "notes": "GitHub API credential(githubApi, 토큰: ARAGO3/claude_n8n Contents Read/Write) 연결 필요. 404=신규 파일",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1152,
+        304
+      ],
+      "parameters": {
+        "url": "=https://api.github.com/repos/ARAGO3/claude_n8n/contents/{{ $json.urlPath }}?ref=main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "githubApi": {
+          "id": "w3prkVKBWCqPewgq",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "id": "g5",
+      "name": "변경 여부 판단",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        304
+      ],
+      "parameters": {
+        "jsCode": "const src = $('백업 파일 구성').all().map((i) => i.json);\nconst res = $input.all().map((i) => i.json);\nconst today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);\nconst out = [];\nfor (let i = 0; i < src.length; i++) {\n  const f = src[i];\n  const r = res[i] || {};\n  const status = r.statusCode;\n  if (status === 200) {\n    const remote = String((r.body && r.body.content) || '').replace(/\\s/g, '');\n    if (remote === f.content) continue; // 변경 없음 → 커밋 생략\n    out.push({ json: { ...f, sha: r.body.sha, message: `backup: update ${f.name} (${today})` } });\n  } else if (status === 404) {\n    out.push({ json: { ...f, sha: null, message: `backup: add ${f.name} (${today})` } });\n  } else {\n    throw new Error(`GitHub 조회 실패 (${f.path}): HTTP ${status} ${JSON.stringify(r.body || {}).slice(0, 200)}`);\n  }\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "g6",
+      "name": "GitHub 업로드(생성·수정)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "position": [
+        1760,
+        304
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/ARAGO3/claude_n8n/contents/{{ $json.urlPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message, content: $json.content, branch: 'main', ...($json.sha ? { sha: $json.sha } : {}) }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "githubApi": {
+          "id": "w3prkVKBWCqPewgq",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "id": "g0",
+      "name": "수동 실행 웹훅",
+      "webhookId": "d68e1e44-1d85-4f5a-b90f-6cb7f0b54cbe",
+      "notes": "수동 백업 실행용 (스케줄과 동일 동작)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        256,
+        500
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "n8n-github-backup-run",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "g7",
+      "name": "결과 집계",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2060,
+        304
+      ],
+      "parameters": {
+        "jsCode": "const res = $input.all().map((i) => i.json);\nconst src = $('변경 여부 판단').all().map((i) => i.json);\nconst total = $('백업 파일 구성').all().length;\nconst ok = []; const fail = [];\nres.forEach((r, i) => {\n  const s = src[i] || {};\n  if (r.statusCode === 200 || r.statusCode === 201) ok.push(`${s.sha ? '수정' : '신규'}: ${s.name}`);\n  else fail.push(`${s.name}: HTTP ${r.statusCode} ${JSON.stringify(r.body || {}).slice(0, 160)}`);\n});\nif (fail.length) throw new Error(`백업 실패 ${fail.length}건 / 성공 ${ok.length}건\\n` + fail.join('\\n'));\nreturn [{ json: { total, uploaded: ok.length, unchanged: total - ok.length, files: ok } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "매일 18:00": {
+      "main": [
+        [
+          {
+            "node": "전체 워크플로우 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "전체 워크플로우 조회": {
+      "main": [
+        [
+          {
+            "node": "백업 파일 구성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "백업 파일 구성": {
+      "main": [
+        [
+          {
+            "node": "GitHub 기존 파일 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub 기존 파일 조회": {
+      "main": [
+        [
+          {
+            "node": "변경 여부 판단",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "변경 여부 판단": {
+      "main": [
+        [
+          {
+            "node": "GitHub 업로드(생성·수정)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "수동 실행 웹훅": {
+      "main": [
+        [
+          {
+            "node": "전체 워크플로우 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub 업로드(생성·수정)": {
+      "main": [
+        [
+          {
+            "node": "결과 집계",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "activeVersion": {
+    "versionId": "f9b9164d-b496-45e7-8338-592ebb39e193",
+    "workflowId": "AWsERCE8JDZ51jQB",
+    "nodes": [
+      {
+        "id": "g1",
+        "name": "매일 18:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          256,
+          304
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 18 * * *"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "g2",
+        "name": "전체 워크플로우 조회",
+        "notes": "n8n API credential(n8nApi) 연결 필요: Base URL http://localhost:5678/api/v1 + API Key",
+        "type": "n8n-nodes-base.n8n",
+        "typeVersion": 1,
+        "position": [
+          560,
+          304
+        ],
+        "parameters": {
+          "resource": "workflow",
+          "operation": "getAll",
+          "returnAll": true,
+          "filters": {},
+          "requestOptions": {}
+        },
+        "credentials": {
+          "n8nApi": {
+            "id": "BOCZxcf1OAc7RhBW",
+            "name": "n8n account"
+          }
+        }
+      },
+      {
+        "id": "g3",
+        "name": "백업 파일 구성",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          864,
+          304
+        ],
+        "parameters": {
+          "jsCode": "const DIR = 'n8n-backup/workflows';\nconst slug = (s) => String(s || 'workflow').replace(/[\\\\/:*?\"<>|#%]/g, '').trim().replace(/\\s+/g, '-').slice(0, 80) || 'workflow';\nreturn $input.all().map((i) => {\n  const wf = { ...i.json };\n  // 개인정보·실행데이터 제외 (공개 저장소 보호, 매일 불필요한 diff 방지)\n  delete wf.shared; delete wf.staticData; delete wf.pinData;\n  const path = `${DIR}/${slug(wf.name)}-${wf.id}.json`;\n  const content = Buffer.from(JSON.stringify(wf, null, 2) + '\\n', 'utf8').toString('base64');\n  return { json: { id: wf.id, name: wf.name, path, urlPath: encodeURI(path), content } };\n});\n"
+        }
+      },
+      {
+        "id": "g4",
+        "name": "GitHub 기존 파일 조회",
+        "notes": "GitHub API credential(githubApi, 토큰: ARAGO3/claude_n8n Contents Read/Write) 연결 필요. 404=신규 파일",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1152,
+          304
+        ],
+        "parameters": {
+          "url": "=https://api.github.com/repos/ARAGO3/claude_n8n/contents/{{ $json.urlPath }}?ref=main",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/vnd.github+json"
+              },
+              {
+                "name": "X-GitHub-Api-Version",
+                "value": "2022-11-28"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "githubApi": {
+            "id": "w3prkVKBWCqPewgq",
+            "name": "GitHub account"
+          }
+        }
+      },
+      {
+        "id": "g5",
+        "name": "변경 여부 판단",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1456,
+          304
+        ],
+        "parameters": {
+          "jsCode": "const src = $('백업 파일 구성').all().map((i) => i.json);\nconst res = $input.all().map((i) => i.json);\nconst today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);\nconst out = [];\nfor (let i = 0; i < src.length; i++) {\n  const f = src[i];\n  const r = res[i] || {};\n  const status = r.statusCode;\n  if (status === 200) {\n    const remote = String((r.body && r.body.content) || '').replace(/\\s/g, '');\n    if (remote === f.content) continue; // 변경 없음 → 커밋 생략\n    out.push({ json: { ...f, sha: r.body.sha, message: `backup: update ${f.name} (${today})` } });\n  } else if (status === 404) {\n    out.push({ json: { ...f, sha: null, message: `backup: add ${f.name} (${today})` } });\n  } else {\n    throw new Error(`GitHub 조회 실패 (${f.path}): HTTP ${status} ${JSON.stringify(r.body || {}).slice(0, 200)}`);\n  }\n}\nreturn out;\n"
+        }
+      },
+      {
+        "id": "g6",
+        "name": "GitHub 업로드(생성·수정)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "retryOnFail": false,
+        "maxTries": 3,
+        "waitBetweenTries": 3000,
+        "position": [
+          1760,
+          304
+        ],
+        "parameters": {
+          "method": "PUT",
+          "url": "=https://api.github.com/repos/ARAGO3/claude_n8n/contents/{{ $json.urlPath }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/vnd.github+json"
+              },
+              {
+                "name": "X-GitHub-Api-Version",
+                "value": "2022-11-28"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ message: $json.message, content: $json.content, branch: 'main', ...($json.sha ? { sha: $json.sha } : {}) }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1,
+                "batchInterval": 3000
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "githubApi": {
+            "id": "w3prkVKBWCqPewgq",
+            "name": "GitHub account"
+          }
+        }
+      },
+      {
+        "id": "g0",
+        "name": "수동 실행 웹훅",
+        "webhookId": "d68e1e44-1d85-4f5a-b90f-6cb7f0b54cbe",
+        "notes": "수동 백업 실행용 (스케줄과 동일 동작)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          256,
+          500
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "n8n-github-backup-run",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "g7",
+        "name": "결과 집계",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2060,
+          304
+        ],
+        "parameters": {
+          "jsCode": "const res = $input.all().map((i) => i.json);\nconst src = $('변경 여부 판단').all().map((i) => i.json);\nconst total = $('백업 파일 구성').all().length;\nconst ok = []; const fail = [];\nres.forEach((r, i) => {\n  const s = src[i] || {};\n  if (r.statusCode === 200 || r.statusCode === 201) ok.push(`${s.sha ? '수정' : '신규'}: ${s.name}`);\n  else fail.push(`${s.name}: HTTP ${r.statusCode} ${JSON.stringify(r.body || {}).slice(0, 160)}`);\n});\nif (fail.length) throw new Error(`백업 실패 ${fail.length}건 / 성공 ${ok.length}건\\n` + fail.join('\\n'));\nreturn [{ json: { total, uploaded: ok.length, unchanged: total - ok.length, files: ok } }];\n"
+        }
+      }
+    ],
+    "connections": {
+      "매일 18:00": {
+        "main": [
+          [
+            {
+              "node": "전체 워크플로우 조회",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "전체 워크플로우 조회": {
+        "main": [
+          [
+            {
+              "node": "백업 파일 구성",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "백업 파일 구성": {
+        "main": [
+          [
+            {
+              "node": "GitHub 기존 파일 조회",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GitHub 기존 파일 조회": {
+        "main": [
+          [
+            {
+              "node": "변경 여부 판단",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "변경 여부 판단": {
+        "main": [
+          [
+            {
+              "node": "GitHub 업로드(생성·수정)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "수동 실행 웹훅": {
+        "main": [
+          [
+            {
+              "node": "전체 워크플로우 조회",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GitHub 업로드(생성·수정)": {
+        "main": [
+          [
+            {
+              "node": "결과 집계",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "아라 고",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-11-09T12:26:50.311Z",
+    "updatedAt": "2026-11-09T12:26:50.311Z"
+  }
+}
