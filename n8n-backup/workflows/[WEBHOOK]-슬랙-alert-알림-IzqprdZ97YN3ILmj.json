@@ -1,0 +1,122 @@
+{
+  "id": "IzqprdZ97YN3ILmj",
+  "name": "[WEBHOOK] 슬랙 #alert 알림",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-04T12:22:25.463Z",
+  "updatedAt": "2026-11-06T12:50:06.198Z",
+  "isArchived": false,
+  "versionId": "241a98cd-9b78-41bf-8aba-7a96c1431445",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Webhook",
+      "webhookId": "alert-webhook-0001",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        256,
+        304
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alert",
+        "options": {}
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Slack 알림 전송",
+      "webhookId": "4227bfae-0705-4246-b7ee-c95eb55e5a59",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        560,
+        304
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#alert"
+        },
+        "text": "={{ $json.body.message ?? ('```' + JSON.stringify($json.body, null, 2) + '```') }}",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "EwoJNoqoeryx3bzv",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "name": "수동 실행 (채널 생성용)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        256,
+        512
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n4",
+      "name": "Slack 채널 생성",
+      "webhookId": "4c4a4df4-fb59-4edd-8b6b-b2b0db791551",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        560,
+        512
+      ],
+      "parameters": {
+        "resource": "channel",
+        "channelId": "alert"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "EwoJNoqoeryx3bzv",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Slack 알림 전송",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "수동 실행 (채널 생성용)": {
+      "main": [
+        [
+          {
+            "node": "Slack 채널 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "activeVersion": null
+}
