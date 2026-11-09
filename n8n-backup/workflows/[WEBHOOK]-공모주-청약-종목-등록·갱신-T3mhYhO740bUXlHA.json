@@ -1,0 +1,100 @@
+{
+  "id": "T3mhYhO740bUXlHA",
+  "name": "[WEBHOOK] 공모주 청약 종목 등록·갱신",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-09T11:45:44.041Z",
+  "updatedAt": "2026-11-09T11:46:15.902Z",
+  "isArchived": false,
+  "versionId": "365785aa-d8bd-44a0-a6e5-5d9bb8664bab",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "r1",
+      "name": "Webhook",
+      "webhookId": "ipo-subscribed-webhook",
+      "notes": "body: {\"name\":\"종목명\",\"broker\":\"증권사\",\"subscribe_date\":\"2026-11-12\",\"price\":15000,\"shares\":5,\"fee\":2000,\"status\":\"청약\"}",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ipo-subscribed",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "r2",
+      "name": "종목 저장(upsert)",
+      "notes": "이름이 같으면 갱신(배정수량·매도가·순수익 등), 없으면 새로 등록",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "kG82s0zXdam3b49k"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "name",
+              "condition": "eq",
+              "keyValue": "={{ $json.body.name }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "broker": "={{ $json.body.broker ?? '' }}",
+            "subscribe_date": "={{ $json.body.subscribe_date ?? '' }}",
+            "price": "={{ $json.body.price ?? null }}",
+            "shares": "={{ $json.body.shares ?? null }}",
+            "fee": "={{ $json.body.fee ?? null }}",
+            "sell_price": "={{ $json.body.sell_price ?? null }}",
+            "sell_cost": "={{ $json.body.sell_cost ?? null }}",
+            "net_profit": "={{ $json.body.net_profit ?? null }}",
+            "status": "={{ $json.body.status ?? '청약' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "종목 저장(upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
