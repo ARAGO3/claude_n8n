@@ -1,0 +1,137 @@
+{
+  "id": "tDJ0yrP87mG9pIVy",
+  "name": "[CRON] 매일 아침 8시 날씨 알림 (역삼·수원)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-06T12:44:44.491Z",
+  "updatedAt": "2026-11-06T12:44:44.491Z",
+  "isArchived": false,
+  "versionId": "5d2106d8-1d05-46f2-b65f-701badc79d00",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "매일 아침 8시",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Open-Meteo 날씨 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast?latitude=37.5006,37.2636&longitude=127.0364,127.0286&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul&forecast_days=1",
+        "options": {}
+      }
+    },
+    {
+      "id": "n3",
+      "name": "메시지 만들기",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const names = ['서울 역삼', '경기 수원'];\nconst wmo = (c) => {\n  if (c === 0) return '☀️ 맑음';\n  if (c <= 2) return '⛅ 구름 조금';\n  if (c === 3) return '☁️ 흐림';\n  if (c === 45 || c === 48) return '🌫️ 안개';\n  if (c >= 51 && c <= 57) return '🌦️ 이슬비';\n  if (c >= 61 && c <= 67) return '🌧️ 비';\n  if (c >= 71 && c <= 77) return '❄️ 눈';\n  if (c >= 80 && c <= 82) return '🌧️ 소나기';\n  if (c === 85 || c === 86) return '❄️ 눈보라';\n  if (c >= 95) return '⛈️ 뇌우';\n  return '🌡️ 알 수 없음';\n};\nconst items = $input.all();\nconst date = items[0].json.daily.time[0].slice(5).replace('-', '/');\nconst lines = items.map((it, i) => {\n  const d = it.json;\n  return `📍 ${names[i]}: ${wmo(d.current.weather_code)} | 현재 ${Math.round(d.current.temperature_2m)}°C | 최저 ${Math.round(d.daily.temperature_2m_min[0])}° / 최고 ${Math.round(d.daily.temperature_2m_max[0])}° | 강수확률 ${d.daily.precipitation_probability_max[0]}%`;\n});\nreturn [{ json: { text: `🌤️ 오늘의 날씨 (${date})\\n` + lines.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Slack #alert 전송",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1150,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#alert"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "EwoJNoqoeryx3bzv",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "a80963e6-aef3-4bf8-8511-23c82f59e02e"
+    }
+  ],
+  "connections": {
+    "매일 아침 8시": {
+      "main": [
+        [
+          {
+            "node": "Open-Meteo 날씨 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open-Meteo 날씨 조회": {
+      "main": [
+        [
+          {
+            "node": "메시지 만들기",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "메시지 만들기": {
+      "main": [
+        [
+          {
+            "node": "Slack #alert 전송",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
