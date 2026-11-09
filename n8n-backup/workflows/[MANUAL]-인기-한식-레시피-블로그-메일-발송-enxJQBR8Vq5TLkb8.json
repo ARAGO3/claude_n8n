@@ -1,0 +1,384 @@
+{
+  "id": "enxJQBR8Vq5TLkb8",
+  "name": "[MANUAL] 인기 한식 레시피 블로그 메일 발송",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-06T10:41:53.212Z",
+  "updatedAt": "2026-11-06T11:28:03.572Z",
+  "isArchived": false,
+  "versionId": "dbfbacae-fc81-483f-9936-122e2834b4b2",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "n1",
+      "name": "수동 실행",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        256,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dishes = ['김치볶음밥','불고기','비빔밥','김치찌개','된장찌개','떡볶이','잡채','삼겹살','갈비찜','순두부찌개','김밥','제육볶음','닭갈비','부대찌개','칼국수','냉면','삼계탕','해물파전','계란말이','미역국'];\nconst fmt = d => d.toISOString().slice(0,10).replace(/-/g,'');\nconst end = new Date(Date.now() - 2*86400000);\nconst start = new Date(end.getTime() - 6*86400000);\nreturn dishes.map(title => ({ json: { title, start: fmt(start), end: fmt(end) } }));"
+      },
+      "id": "n2",
+      "name": "한식 후보 목록",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/ko.wikipedia/all-access/user/{{ encodeURIComponent($json.title) }}/daily/{{ $json.start }}/{{ $json.end }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-korean-food-workflow/1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n3",
+      "name": "위키백과 조회수 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        864,
+        304
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const titles = $('한식 후보 목록').all().map(i => i.json.title);\nconst results = $input.all();\nlet best = { title: titles[0], views: -1 };\nresults.forEach((r, idx) => {\n  const items = r.json.items || [];\n  const views = items.reduce((s, x) => s + (x.views || 0), 0);\n  if (views > best.views) best = { title: titles[idx], views };\n});\nreturn [{ json: { title: best.title, views: best.views } }];"
+      },
+      "id": "n4",
+      "name": "인기 1위 선정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = $input.first().json;\nlet text = out.output?.[0]?.content?.[0]?.text || out.choices?.[0]?.message?.content || out.text || JSON.stringify(out);\ntext = String(text).replace(/```json|```/g,'').trim();\ntext = text.slice(text.indexOf('{'), text.lastIndexOf('}')+1);\nconst blog = JSON.parse(text);\nreturn [{ json: { ...blog, views: $('인기 1위 선정').first().json.views } }];"
+      },
+      "id": "n6",
+      "name": "JSON 파싱",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://ko.wikipedia.org/api/rest_v1/page/summary/{{ encodeURIComponent($json.title) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-korean-food-workflow/1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n7",
+      "name": "이미지 정보 검색",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2064,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.first().json;\nconst imageUrl = s.originalimage?.source || s.thumbnail?.source || '';\nreturn [{ json: { ...$('JSON 파싱').first().json, imageUrl } }];"
+      },
+      "id": "n8",
+      "name": "이미지 URL 정리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-korean-food-workflow/1.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "n9",
+      "name": "이미지 다운로드",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2656,
+        304
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('이미지 URL 정리').first().json;\nconst li = a => a.map(x => `<li>${x}</li>`).join('');\nconst html = `<div style=\"font-family:sans-serif;max-width:600px;margin:auto\">\n<h1>🍚 ${b.title}</h1>\n<p><b>${b.description}</b></p>\n${b.imageUrl ? `<img src=\"${b.imageUrl}\" alt=\"${b.title}\" style=\"max-width:100%;border-radius:8px\">` : ''}\n<h2>재료</h2><ul>${li(b.ingredients)}</ul>\n<h2>요리 순서</h2><ol>${li(b.steps)}</ol>\n<h2>전문가 한마디</h2><p>${b.tip}</p>\n<hr><small>최근 7일 위키백과 조회수 ${b.views}회로 선정된 인기 한식입니다.</small></div>`;\nreturn [{ json: { subject: `[오늘의 한식] ${b.title} 만드는 법`, html }, binary: $input.first().binary }];"
+      },
+      "id": "n10",
+      "name": "메일 양식 구성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "aragoworking@gmail.com",
+        "toEmail": "aragoworking@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "id": "n11",
+      "name": "SMTP 메일 발송",
+      "webhookId": "a266b0d2-07c6-4374-8212-0a201978b5c1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3264,
+        304
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "Xea5YlwFSFNOKpxJ",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "당신은 한식 요리 전문가입니다. 독자에게 친절하게 '~하세요' 어조로 간결하게 설명합니다. 반드시 JSON 객체만 출력하고 다른 말은 쓰지 마세요."
+            },
+            {
+              "content": "=요리: {{ $json.title }}\n\n다음 JSON 형식으로 블로그 글을 작성하세요.\n{\"title\":\"요리 이름\",\"description\":\"한 줄 음식 설명 (예: 김치와 햄을 이용해서 간단하게 만들 수 있는 인기 음식)\",\"ingredients\":[\"재료 (분량)\"],\"steps\":[\"요리 순서\"],\"tip\":\"전문가 한마디\"}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "n5",
+      "name": "레시피 블로그 작성 (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "position": [
+        1456,
+        304
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "bEk8I5Q24W3CRj8q",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "n0",
+      "name": "매일 오전 8시",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        512
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "수동 실행": {
+      "main": [
+        [
+          {
+            "node": "한식 후보 목록",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "한식 후보 목록": {
+      "main": [
+        [
+          {
+            "node": "위키백과 조회수 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "위키백과 조회수 조회": {
+      "main": [
+        [
+          {
+            "node": "인기 1위 선정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON 파싱": {
+      "main": [
+        [
+          {
+            "node": "이미지 정보 검색",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "이미지 정보 검색": {
+      "main": [
+        [
+          {
+            "node": "이미지 URL 정리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "이미지 URL 정리": {
+      "main": [
+        [
+          {
+            "node": "이미지 다운로드",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "이미지 다운로드": {
+      "main": [
+        [
+          {
+            "node": "메일 양식 구성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "메일 양식 구성": {
+      "main": [
+        [
+          {
+            "node": "SMTP 메일 발송",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "인기 1위 선정": {
+      "main": [
+        [
+          {
+            "node": "레시피 블로그 작성 (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "레시피 블로그 작성 (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "JSON 파싱",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "매일 오전 8시": {
+      "main": [
+        [
+          {
+            "node": "한식 후보 목록",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "activeVersion": null
+}
