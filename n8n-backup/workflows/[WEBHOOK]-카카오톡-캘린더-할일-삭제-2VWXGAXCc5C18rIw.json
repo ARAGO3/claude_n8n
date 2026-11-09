@@ -1,0 +1,108 @@
+{
+  "id": "2VWXGAXCc5C18rIw",
+  "name": "[WEBHOOK] 카카오톡 캘린더 할일 삭제",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-11-09T11:29:42.695Z",
+  "updatedAt": "2026-11-09T11:30:01.732Z",
+  "isArchived": false,
+  "versionId": "f219453f-79cc-45fb-a317-0f329f89348a",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "d1",
+      "name": "Webhook",
+      "webhookId": "kakao-todo-delete-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kakao-todo-delete",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "d2",
+      "name": "task_id 분리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const ids = ($input.first().json.body || {}).task_ids;\nif (!Array.isArray(ids) || !ids.length) throw new Error('task_ids 배열이 필요합니다.');\nreturn ids.map((id) => ({ json: { task_id: String(id) } }));"
+      }
+    },
+    {
+      "id": "d3",
+      "name": "할일 삭제",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "https://kapi.kakao.com/v1/api/calendar/delete/task",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "task_id",
+              "value": "={{ $json.task_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "oAuth2Api": {
+          "id": "SQ1WOpcb9u1kFq9q",
+          "name": "Unnamed credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "task_id 분리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "task_id 분리": {
+      "main": [
+        [
+          {
+            "node": "할일 삭제",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "timezone": "Asia/Seoul",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "activeVersion": null
+}
